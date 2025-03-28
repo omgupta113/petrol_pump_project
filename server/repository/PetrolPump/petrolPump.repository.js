@@ -77,9 +77,8 @@ const PetrolPumpRepository = {
                 LIMIT 1
             `;
             connection.query(query, (err, results) => {
-                console.log(results[0]);
                 if (err) reject(err);
-                else resolve(results[0]?.['petrolPumpID'] || null);
+                else resolve(results[0] ? results[0]['petrolPumpID'] : null); // Fixed line
             });
         });
     }

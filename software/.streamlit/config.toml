@@ -1,0 +1,3 @@
+[server]
+maxUploadSize = 20000  # 20GB in megabytes
+enableXsrfProtection = false

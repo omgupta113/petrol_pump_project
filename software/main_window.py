@@ -1,5 +1,3 @@
-# main_window.py
-
 import tkinter as tk
 from tkinter import filedialog
 import cv2
@@ -83,32 +81,8 @@ class VehicleTrackingUI:
         # Create UI elements
         self.create_ui()
 
-    def connect_camera(self):
-        ip = self.camera_ip_var.get()
-        port = self.camera_port_var.get()
-        
-        if not ip or not port:
-            self.status_var.set("Please enter IP and Port")
-            return
-        
-        rtsp_url = f"rtsp://{ip}:{port}t/live/0/MAIN"
-        self.video_path = rtsp_url
-        
-        # Open camera and proceed to ROI selection
-        self.cap = cv2.VideoCapture(rtsp_url)
-        if not self.cap.isOpened():
-            self.status_var.set("Failed to connect to camera")
-            return
-        
-        self.select_roi()
-
     def initialize_variables(self):
     # Video processing variables
-
-        self.camera_ip = None
-        self.camera_port = None
-
-
         self.video_path = None
         self.cap = None
         self.output_video = None
@@ -134,23 +108,18 @@ class VehicleTrackingUI:
         content_frame = ttk.Frame(self.main_container.scrollable_frame, padding="20")
         content_frame.pack(fill="both", expand=True)
         
-         # Control Card
+        # Control Card
         control_card = ModernCard(content_frame, "Controls")
         control_card.pack(fill="x", pady=(0, 10))
         
-        # Camera connection frame
-        camera_frame = ttk.Frame(control_card.content)
-        camera_frame.pack(fill="x", pady=5)
+        # File selection
+        file_frame = ttk.Frame(control_card.content)
+        file_frame.pack(fill="x", pady=5)
         
-        ttk.Label(camera_frame, text="Camera IP:").pack(side="left")
-        self.camera_ip_var = tk.StringVar()
-        ttk.Entry(camera_frame, textvariable=self.camera_ip_var, width=20).pack(side="left", padx=5)
-        
-        ttk.Label(camera_frame, text="Port:").pack(side="left")
-        self.camera_port_var = tk.StringVar()
-        ttk.Entry(camera_frame, textvariable=self.camera_port_var, width=10).pack(side="left", padx=5)
-        
-        AnimatedButton(camera_frame, text="Connect Camera", command=self.connect_camera, style="Action.TButton").pack(side="left")
+        ttk.Label(file_frame, text="Video File:").pack(side="left")
+        self.file_path_var = tk.StringVar()
+        ttk.Entry(file_frame, textvariable=self.file_path_var, width=50).pack(side="left", padx=5)
+        AnimatedButton(file_frame, text="Browse", command=self.browse_file, style="Action.TButton").pack(side="left")
         
         # Control buttons
         buttons_frame = ttk.Frame(control_card.content)
@@ -338,7 +307,7 @@ class VehicleTrackingUI:
 
         # Create output video writer
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = f"output/output_{timestamp}.mp4"
+        output_path = f"output_{timestamp}.mp4"
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         self.output_video = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 

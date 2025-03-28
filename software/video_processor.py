@@ -9,9 +9,9 @@ from api_client import post_vehicle_entry, update_vehicle_exit
 class VideoProcessor:
     def __init__(self):
         # Load models
-        self.vehicle_model = YOLO(Config.VEHICLE_MODEL)
-        self.helmet_model = YOLO(Config.HELMET_MODEL)
-        self.smoke_fire_model = YOLO(Config.SMOKE_FIRE_MODEL)
+        self.vehicle_model = YOLO(Config.VEHICLE_MODEL).to('cuda:0')
+        self.helmet_model = YOLO(Config.HELMET_MODEL).to('cuda:0')
+        self.smoke_fire_model = YOLO(Config.SMOKE_FIRE_MODEL).to('cuda:0')
         
         # Initialize SORT tracker
         self.tracker = Sort(
@@ -56,7 +56,7 @@ class VideoProcessor:
             source=enhanced_frame,
             conf=0.3,  # Lower confidence threshold
             iou=0.4,
-            device='cpu'
+            device='0'
         )
         
         detections = []
@@ -207,14 +207,14 @@ class VideoProcessor:
             source=frame,
             conf=Config.YOLO_CONFIDENCE,
             classes=Config.YOLO_CLASSES,
-            device='cpu'
+            device='0'
         )
 
         # Helmet detection
         helmet_results = self.helmet_model.predict(
             source=frame,
             conf=Config.YOLO_CONFIDENCE,
-            device='cpu'
+            device='0'
         )
 
         detections = []
@@ -262,7 +262,7 @@ class VideoProcessor:
 
                     # Send entry data to the server
                     post_vehicle_entry(
-                        petrol_pump_id="IOCL-3",  # Replace with actual petrol pump ID
+                        petrol_pump_id="IOCL-1",  # Replace with actual petrol pump ID
                         vehicle_id=str(track_id),
                         entering_time=current_time,
                         date=current_date
@@ -270,6 +270,7 @@ class VideoProcessor:
 
                 elif not in_roi and self.tracked_vehicles[track_id]["in_roi"]:
                     # Vehicle exited ROI
+                    current_time = datetime.now().strftime("%H:%M:%S")
                     entry_time = self.tracked_vehicles[track_id]["entry_time"]
                     exit_time = current_time
                     filling_time = self.calculate_filling_time(entry_time, exit_time)
@@ -279,8 +280,11 @@ class VideoProcessor:
                         petrol_pump_id="IOCL-1",  # Replace with actual petrol pump ID
                         vehicle_id=str(track_id),
                         exit_time=exit_time,
-                        filling_time=filling_time
+                        filling_time=filling_time,
+                        entry_time=self.tracked_vehicles[track_id]["entry_time"]
                     )
+                    print(filling_time,exit_time)
+                    print("vgfcv hjv hghjhfgvyughfvb yhgv biyuvutrc7tdcvutfvivuyfcugfcviyhvighvugfgxuggfcivyhviytfvytgbi7uvyutfrtctcvtyvyuhvgfhvhjhjujvjbhv")
 
                     # Mark vehicle as exited
                     self.tracked_vehicles[track_id]["in_roi"] = False
@@ -318,4 +322,6 @@ class VideoProcessor:
         start = datetime.strptime(entry_time, fmt)
         end = datetime.strptime(exit_time, fmt)
         delta = end - start
-        return f"{delta.seconds // 60} mins"
+        return f"{delta.seconds} seconds"
+
+
