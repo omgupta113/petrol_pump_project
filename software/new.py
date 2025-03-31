@@ -76,7 +76,7 @@ def main():
         if ret:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             with col1:
-                st.image(frame, channels="RGB", use_column_width=True)
+                st.image(frame, channels="RGB", use_container_width=True)
                 
                 # Get ROI points from user clicks
                 if st.button("Click to select ROI points"):
@@ -101,8 +101,8 @@ def main():
                 np.array(st.session_state.roi_points))
             
             # Update displays
-            video_placeholder.image(frame, channels="BGR", use_column_width=True)
-            processed_placeholder.image(processed_frame, channels="BGR", use_column_width=True)
+            video_placeholder.image(frame, channels="BGR", use_container_width=True)
+            processed_placeholder.image(processed_frame, channels="BGR", use_container_width=True)
             
             # Update statistics
             current_ids = {int(track[4]) for track in tracked_objects}
