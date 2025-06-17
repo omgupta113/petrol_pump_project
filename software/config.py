@@ -29,6 +29,14 @@ class Config:
     RTSP_CONNECTION_TIMEOUT = 10 # Timeout for RTSP connection in seconds
     RTSP_MAX_RETRIES = 3         # Maximum number of retries for RTSP read operations
     
+    # MQTT configurations for vehicle state publishing
+    MQTT_ENABLED = True          # Enable/disable MQTT functionality
+    MQTT_BROKER = "localhost"    # MQTT broker address
+    MQTT_PORT = 1883             # MQTT broker port
+    MQTT_TOPIC = "vehicle/state" # Topic to publish vehicle presence state
+    MQTT_QOS = 1                 # QoS level (0, 1, or 2)
+    MQTT_RETAIN = True           # Retain messages
+    
     # Sample RTSP URL templates (for testing)
     RTSP_URL_SAMPLES = [
         "rtsp://username:password@ip_address:port/path",

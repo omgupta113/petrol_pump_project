@@ -23,7 +23,7 @@ VEHICLE_TYPE_MAPPING = {
 }
 
 # API endpoints
-BASE_URL = "http://13.233.118.66:3000"
+BASE_URL = "http://13.203.197.204:3000"
 POST_VEHICLE_ENDPOINT = f"{BASE_URL}/PetrolPumps/details/"
 UPDATE_VEHICLE_ENDPOINT = f"{BASE_URL}/PetrolPumps/details"
 GET_VEHICLES_ENDPOINT = f"{BASE_URL}/PetrolPumps/details"

@@ -9,6 +9,7 @@ import time
 import os
 import re
 import logging
+import paho.mqtt.client as mqtt
 from api_client import post_vehicle_entry, update_vehicle_exit, VEHICLE_TYPE_MAPPING, get_vehicle_status, force_update_stale_vehicles
 logger = logging.getLogger('video_processor')
 
@@ -47,6 +48,94 @@ class VideoProcessor:
         # Maintenance thread
         self.maintenance_running = False
         self.maintenance_thread = None
+        
+        # MQTT client setup
+        self.mqtt_client = mqtt.Client()
+        self.mqtt_connected = False
+        self.mqtt_server = Config.MQTT_BROKER  # Get broker address from config
+        self.mqtt_port = Config.MQTT_PORT      # Get port from config
+        self.mqtt_topic = Config.MQTT_TOPIC    # Get topic from config
+        self.mqtt_qos = Config.MQTT_QOS        # Get QoS level from config
+        self.mqtt_retain = Config.MQTT_RETAIN  # Get retain flag from config
+        self.last_published_state = None       # Track last published state to avoid duplicate publishes
+        
+        # Setup MQTT client if enabled in config
+        if Config.MQTT_ENABLED:
+            self.setup_mqtt()
+
+    def setup_mqtt(self):
+        """Set up MQTT client connection"""
+        try:
+            # Define callbacks
+            def on_connect(client, userdata, flags, rc):
+                if rc == 0:
+                    logger.info("Connected to MQTT Broker")
+                    self.mqtt_connected = True
+                else:
+                    logger.error(f"Failed to connect to MQTT Broker, return code: {rc}")
+                    self.mqtt_connected = False
+            
+            def on_disconnect(client, userdata, rc):
+                logger.warning(f"Disconnected from MQTT Broker with code: {rc}")
+                self.mqtt_connected = False
+            
+            # Set callbacks
+            self.mqtt_client.on_connect = on_connect
+            self.mqtt_client.on_disconnect = on_disconnect
+            
+            # Connect to broker
+            self.mqtt_client.connect_async(self.mqtt_server, self.mqtt_port, 60)
+            
+            # Start the loop in a non-blocking way
+            self.mqtt_client.loop_start()
+            
+            logger.info(f"MQTT client initialized, connecting to {self.mqtt_server}:{self.mqtt_port}")
+        except Exception as e:
+            logger.error(f"Error setting up MQTT client: {str(e)}")
+            self.mqtt_connected = False
+
+    def publish_vehicle_state(self):
+        """Publish vehicle presence state to MQTT topic"""
+        if not Config.MQTT_ENABLED:
+            return False
+            
+        if not self.mqtt_connected:
+            logger.warning("Cannot publish to MQTT: Not connected to broker")
+            # Try to reconnect
+            try:
+                self.setup_mqtt()
+                if not self.mqtt_connected:
+                    return False
+            except:
+                return False
+        
+        # Check if any vehicles are currently in ROI
+        vehicles_in_roi = any(v["in_roi"] for v in self.tracked_vehicles.values())
+        
+        # State to publish: 1 if vehicles present, 0 if no vehicles
+        state = 1 if vehicles_in_roi else 0
+        
+        # Only publish if state has changed to avoid flooding the broker
+        if self.last_published_state is None or self.last_published_state != state:
+            try:
+                # Publish state to topic using configured QoS and retain settings
+                result = self.mqtt_client.publish(
+                    self.mqtt_topic, 
+                    state, 
+                    qos=self.mqtt_qos, 
+                    retain=self.mqtt_retain
+                )
+                if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                    logger.info(f"Published vehicle state: {state} to topic {self.mqtt_topic}")
+                    self.last_published_state = state
+                    return True
+                else:
+                    logger.error(f"Failed to publish vehicle state: {result.rc}")
+                    return False
+            except Exception as e:
+                logger.error(f"Error publishing to MQTT: {str(e)}")
+                return False
+        return True
 
     def point_in_polygon(self, point, polygon):
         """Check if a point is inside a polygon using the ray-casting algorithm."""
@@ -173,6 +262,21 @@ class VideoProcessor:
         
         # Stop maintenance tasks
         self.stop_maintenance_tasks()
+        
+        # Cleanup MQTT resources
+        if hasattr(self, 'mqtt_client'):
+            try:
+                # Publish 0 (no vehicles) when stopping processing
+                if self.mqtt_connected:
+                    self.mqtt_client.publish(self.mqtt_topic, 0, qos=1, retain=True)
+                    logger.info(f"Published final vehicle state: 0 to topic {self.mqtt_topic}")
+                
+                # Stop the MQTT loop
+                self.mqtt_client.loop_stop()
+                self.mqtt_client.disconnect()
+                logger.info("MQTT client disconnected")
+            except Exception as e:
+                logger.error(f"Error during MQTT cleanup: {str(e)}")
 
     def _process_video(self):
         """Process video directly with YOLO streaming."""
@@ -281,6 +385,9 @@ class VideoProcessor:
                                 print(f"[ENTRY] Track ID {track_id} -> Server ID {server_id}")
                             else:
                                 logger.warning(f"No server ID received for vehicle {track_id} entry")
+                            
+                            # Publish updated vehicle presence state
+                            self.publish_vehicle_state()
                         
                         # Display additional info in bounding boxes
                         # Draw bounding box and labels
@@ -366,6 +473,9 @@ class VideoProcessor:
                         # Mark vehicle as exited
                         self.tracked_vehicles[track_id]["in_roi"] = False
                         self.tracked_vehicles[track_id]["exit_time"] = exit_time
+                        
+                        # Publish updated vehicle presence state
+                        self.publish_vehicle_state()
                 
                 # Update for next frame
                 previous_in_roi_track_ids = current_in_roi_track_ids.copy()
@@ -418,6 +528,14 @@ class VideoProcessor:
         except Exception as e:
             print(f"Error in video processing: {str(e)}")
         
+        # Make sure to publish final state when processing ends
+        try:
+            if self.mqtt_connected:
+                self.mqtt_client.publish(self.mqtt_topic, 0, qos=1, retain=True)
+                logger.info("Published final vehicle state: 0 (processing ended)")
+        except Exception as e:
+            logger.error(f"Error publishing final state: {str(e)}")
+            
         self.is_processing = False
         print("Video processing completed.")
     
@@ -441,6 +559,7 @@ class VideoProcessor:
         """Check for vehicles that have been in the ROI for too long."""
         current_time = datetime.now()
         current_time_str = current_time.strftime("%H:%M:%S")
+        vehicles_state_changed = False
         
         for track_id, vehicle_data in list(self.tracked_vehicles.items()):
             try:
@@ -485,8 +604,14 @@ class VideoProcessor:
                             logger.info(f"Successfully forced exit update for vehicle {track_id}")
                         else:
                             logger.warning(f"Failed to force exit update for vehicle {track_id}")
+                            
+                        vehicles_state_changed = True
             except Exception as e:
                 logger.error(f"Error checking vehicle {track_id}: {e}")
+        
+        # If vehicle states changed, publish updated state
+        if vehicles_state_changed:
+            self.publish_vehicle_state()
                 
     def cleanup_tracked_vehicles(self):
         """Remove old tracked vehicles that have already exited to save memory."""
@@ -544,6 +669,9 @@ class VideoProcessor:
                 # Clean up old tracked vehicles
                 self.cleanup_tracked_vehicles()
                 
+                # Periodically publish vehicle state
+                self.publish_vehicle_state()
+                
             except Exception as e:
                 logger.error(f"Error in maintenance tasks: {str(e)}")
     
@@ -597,6 +725,9 @@ class VideoProcessor:
                 if update_result is True:
                     self.tracked_vehicles[track_id]["put_completed"] = True
                     logger.info(f"Successfully forced exit for vehicle {track_id}")
+                    
+                    # Update MQTT state since vehicle status changed
+                    self.publish_vehicle_state()
                     return True
                 else:
                     logger.warning(f"Failed to force exit for vehicle {track_id}")
@@ -607,21 +738,3 @@ class VideoProcessor:
         else:
             logger.warning(f"Vehicle {track_id} not found in tracked vehicles")
             return False
-            
-    def force_update_all_active_vehicles(self):
-        """Force exit update for all active vehicles."""
-        updated_count = 0
-        
-        # Get all vehicles that are still marked as in ROI
-        active_vehicles = [track_id for track_id, data in self.tracked_vehicles.items() 
-                          if data.get("in_roi", False)]
-        
-        logger.info(f"Attempting to force update {len(active_vehicles)} active vehicles")
-        
-        # Force exit for each active vehicle
-        for track_id in active_vehicles:
-            if self.force_vehicle_exit(track_id):
-                updated_count += 1
-        
-        logger.info(f"Successfully updated {updated_count} out of {len(active_vehicles)} active vehicles")
-        return updated_count
