@@ -9,6 +9,7 @@ import time
 import os
 import re
 import logging
+import requests
 import paho.mqtt.client as mqtt
 from api_client import post_vehicle_entry, update_vehicle_exit, VEHICLE_TYPE_MAPPING, get_vehicle_status, force_update_stale_vehicles
 logger = logging.getLogger('video_processor')
@@ -278,6 +279,24 @@ class VideoProcessor:
             except Exception as e:
                 logger.error(f"Error during MQTT cleanup: {str(e)}")
 
+
+    def update_vehicle_count(self,vehicle_count):
+        url = "http://13.203.197.204:3000/PetrolPumps/IOCL-1"
+        headers = {"Content-Type": "application/json"}
+        data = {"VehicleID": vehicle_count}
+        
+        try:
+            response = requests.put(url, json=data, headers=headers, timeout=5)
+            if response.status_code == 200:
+                logger.info(f"[PUT] Vehicle count updated to {vehicle_count}")
+                return True
+            else:
+                logger.warning(f"[PUT] Failed with status code {response.status_code}: {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"[PUT] Exception while updating vehicle count: {str(e)}")
+            return False
+
     def _process_video(self):
         """Process video directly with YOLO streaming."""
         try:
@@ -286,16 +305,16 @@ class VideoProcessor:
             fps_start_time = time.time()
             fps_frame_count = 0
             
-            # Track previously detected objects that were in ROI
             previous_in_roi_track_ids = set()
             current_in_roi_track_ids = set()
-            
+            previous_roi_vehicle_count = 0  
+
             # Use YOLO's streaming mode by directly passing the source path
             for result in self.vehicle_model.predict(
                     source=self.source_path,
                     conf=Config.YOLO_CONFIDENCE,
                     classes=Config.YOLO_CLASSES,
-                    device='0',
+                    device='cpu',
                     stream=True):  # Enable streaming mode for real-time processing
                 
                 if not self.is_processing:
@@ -412,7 +431,12 @@ class VideoProcessor:
                         if Config.SHOW_CLASS_LABEL and cls_id in Config.CLASS_NAMES:
                             cls_text = f"Class: {Config.CLASS_NAMES[cls_id]}"
                             self.draw_label(processed_frame, cls_text, (x1, y1 - 80), color)
-                
+
+                current_roi_vehicle_count = len(current_in_roi_track_ids)
+                if current_roi_vehicle_count != previous_roi_vehicle_count:
+                    self.update_vehicle_count(current_roi_vehicle_count)
+                    previous_roi_vehicle_count = current_roi_vehicle_count
+
                 # Detect vehicles that were in ROI but are no longer there
                 exited_vehicles = previous_in_roi_track_ids - current_in_roi_track_ids
                 for track_id in exited_vehicles:
@@ -538,6 +562,7 @@ class VideoProcessor:
             
         self.is_processing = False
         print("Video processing completed.")
+
     
     def get_current_frames(self):
         """Get the current original and processed frames."""
