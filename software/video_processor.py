@@ -352,9 +352,35 @@ class VideoProcessor:
                         color = Config.COLORS[int(track_id) % len(Config.COLORS)]
                         
                         # Determine vehicle type from detection class
-                        cls_id = int(result.boxes[min(track_idx, len(result.boxes)-1)].cls.item()) if len(result.boxes) > 0 else 2  # Default to Car (2)
-                        vehicle_type = VEHICLE_TYPE_MAPPING.get(cls_id, "Car")  # Default to Car if class not in mapping
-                        
+                        # Determine vehicle type from detection class - match detection to tracked object
+                        # Determine vehicle type from detection class - match detection to tracked object
+                        cls_id = None
+                        if len(result.boxes) > 0:
+                            # Find the detection box that corresponds to this tracked object
+                            best_iou = 0
+                            best_cls = None
+                            for box in result.boxes:
+                                det_x1, det_y1, det_x2, det_y2 = map(int, box.xyxy[0].tolist())
+                                # Calculate IoU between detection and tracked object
+                                inter_x1 = max(x1, det_x1)
+                                inter_y1 = max(y1, det_y1)
+                                inter_x2 = min(x2, det_x2)
+                                inter_y2 = min(y2, det_y2)
+                                
+                                if inter_x1 < inter_x2 and inter_y1 < inter_y2:
+                                    inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+                                    det_area = (det_x2 - det_x1) * (det_y2 - det_y1)
+                                    track_area = (x2 - x1) * (y2 - y1)
+                                    union_area = det_area + track_area - inter_area
+                                    iou = inter_area / union_area if union_area > 0 else 0
+                                    
+                                    if iou > best_iou:
+                                        best_iou = iou
+                                        best_cls = int(box.cls.item())
+                            
+                            cls_id = best_cls
+
+                        vehicle_type = VEHICLE_TYPE_MAPPING.get(cls_id) if cls_id is not None else "Unknown"
                         # Check if the vehicle is in the ROI
                         in_roi = self.point_in_polygon((center_x, center_y), self.roi_points)
                         
